@@ -35,8 +35,8 @@ import numpy as np
 warnings.filterwarnings("ignore", category=UserWarning, module="matplotlib")
 
 # ─────────────────────────── SOZLAMALAR ───────────────────────────
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
-ADMIN_IDS = [123456789]  # Admin Telegram ID larini kiriting
+BOT_TOKEN = "8655776547:AAEKHHQfCjvdwIgn_y4PH7de-b3g2Jd5iYs"
+ADMIN_IDS = [8537782289]  # Admin Telegram ID larini kiriting
 PAYMENT_CARD = "8600 0000 0000 0000"  # Karta raqamingiz
 DB_PATH = "bot_database.db"
 
