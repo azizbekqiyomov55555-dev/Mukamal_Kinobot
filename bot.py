@@ -24,9 +24,9 @@ logger = logging.getLogger(__name__)
 # ============================================================
 #                        CONFIG
 # ============================================================
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"          # @BotFather dan oling
-ADMIN_IDS = [123456789]                     # O'z Telegram ID ingiz
-PAYMENT_CARD = "8600 0000 0000 0000"        # To'lov karta raqami
+BOT_TOKEN = "8655776547:AAEKHHQfCjvdwIgn_y4PH7de-b3g2Jd5iYs"          # @BotFather dan oling
+ADMIN_IDS = [8537782289]                     # O'z Telegram ID ingiz
+PAYMENT_CARD = "8600060929870872"        # To'lov karta raqami
 DB_PATH = "bot_database.db"
 
 
