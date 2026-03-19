@@ -1,1 +1,0 @@
-# Mukamal_Kinobot
