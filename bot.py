@@ -15,8 +15,8 @@ import sqlite3
 import asyncio
 
 # ===================== SOZLAMALAR =====================
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"  # Bot tokenini shu yerga kiriting
-ADMIN_IDS = [123456789]  # Admin Telegram ID larini shu yerga kiriting
+BOT_TOKEN = "8655776547:AAEKHHQfCjvdwIgn_y4PH7de-b3g2Jd5iYs"  # Bot tokenini shu yerga kiriting
+ADMIN_IDS = [8537782289]  # Admin Telegram ID larini shu yerga kiriting
 TASHKENT_TZ = pytz.timezone("Asia/Tashkent")
 
 # ===================== DATABASE =====================
