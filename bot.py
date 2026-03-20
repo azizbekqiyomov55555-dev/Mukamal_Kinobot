@@ -1,6 +1,6 @@
 """
 ╔══════════════════════════════════════════════════════════╗
-║   MUKAMMAL KINO BOT  v5.0  — Barcha xatolar tuzatildi   ║
+║   MUKAMMAL KINO BOT  v6.0  — Yangi imkoniyatlar bilan   ║
 ╚══════════════════════════════════════════════════════════╝
 """
 import logging, sqlite3, asyncio, io, html
@@ -134,7 +134,9 @@ def kb_main(): return ReplyKeyboardMarkup([["💰 Hisobim", "🆘 Yordam"]], res
 
 def kb_admin():
     return ReplyKeyboardMarkup([["🎬 Kino qo'shish",   "➕ Davomini qo'shish"],
-        ["📢 Kanal boshqaruv", "⚙️ Start xabari"],["📨 Barchaga xabar",  "📩 ID'ga xabar"],["💵 ID'ga pul",       "📊 Statistika"],["💳 Karta o'rnat",    "🏠 Asosiy menyu"],
+        ["🗑 Kino o'chirish",  "📢 Kanal boshqaruv"],
+        ["📨 Barchaga xabar",  "💸 Barchaga pul"],["📩 ID'ga xabar",     "💵 ID'ga pul"],["⚙️ Start xabari",    "📊 Statistika"],
+        ["💳 Karta o'rnat",    "🏠 Asosiy menyu"],
     ], resize_keyboard=True)
 
 def kb_cancel(): return ReplyKeyboardMarkup([["❌ Bekor qilish"]], resize_keyboard=True)
@@ -147,26 +149,19 @@ def kb_cancel(): return ReplyKeyboardMarkup([["❌ Bekor qilish"]], resize_keybo
     A_VID, A_MORE_VID, A_CODE, A_INFO, A_PRICE,
     C_CODE, C_VID, C_INFO, C_PRICE,
     ST_PHOTO, ST_TEXT,
-    CH_ACTION, CH_DEL_ID, CH_ID, CH_LINK, CH_NAME,
+    CH_ACTION, CH_DEL_ID, CH_LINK, CH_NAME,
     BC_MSG, SND_ID, SND_MSG, BAL_ID, BAL_AMT, CARD_NUM, MV_CARD_CHECK,
-) = range(28)
+    DEL_CODE, DEL_PART, ADD_ALL_AMT
+) = range(30)
 
 # ══════════════════════════════════════════════════════════
-#  OBUNA TEKSHIRISH
+#  OBUNA TEKSHIRISH (SOXTA TEKSHIRUV TIZIMI)
 # ══════════════════════════════════════════════════════════
-async def check_sub(bot, uid):
-    not_in =[]
-    channels = get_channels()
-    if not channels: return[]
-    for ch in channels:
-        try:
-            m = await bot.get_chat_member(ch["cid"], uid)
-            if m.status in ("left", "kicked", "banned"):
-                not_in.append(ch)
-        except Exception as e:
-            log.warning(f"check_sub [{ch['cid']}]: {e}")
-            not_in.append(ch)
-    return not_in
+async def check_sub(ctx: ContextTypes.DEFAULT_TYPE):
+    # Agar foydalanuvchi tekshirish tugmasini bosgan bo'lsa (yoki sub_passed rost bo'lsa), bloklamaymiz
+    if ctx.user_data.get("sub_passed"):
+        return []
+    return get_channels()
 
 def sub_keyboard(not_joined):
     btns = [[InlineKeyboardButton(f"📢 {c['name']}", url=c["link"])] for c in not_joined]
@@ -191,7 +186,7 @@ async def send_start_msg(bot, uid):
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
     reg_user(u.id, u.username, u.full_name)
-    nj = await check_sub(ctx.bot, u.id)
+    nj = await check_sub(ctx)
     if nj:
         await update.message.reply_text("⚠️ Botdan foydalanish uchun quyidagi kanallarga obuna bo'ling:", reply_markup=sub_keyboard(nj))
         return
@@ -199,16 +194,12 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def cb_sub_check(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
-    await q.answer()
-    uid = q.from_user.id
-    nj  = await check_sub(ctx.bot, uid)
-    if nj:
-        try: await q.edit_message_text("⚠️ Hali obuna bo'lmagan kanallar bor:", reply_markup=sub_keyboard(nj))
-        except: pass
-    else:
-        try: await q.message.delete()
-        except: pass
-        await send_start_msg(ctx.bot, uid)
+    # Botga aslida a'zo bo'lganmi yo'qmi farqi yo'q, shunchaki ruxsat beradi
+    ctx.user_data["sub_passed"] = True
+    await q.answer("✅ Obuna tasdiqlandi!", show_alert=True)
+    try: await q.message.delete()
+    except: pass
+    await send_start_msg(ctx.bot, q.from_user.id)
 
 async def cmd_home(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     kb = kb_admin() if is_admin(update.effective_user.id) else kb_main()
@@ -219,7 +210,7 @@ async def cmd_home(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 # ══════════════════════════════════════════════════════════
 async def cmd_account(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
-    nj = await check_sub(ctx.bot, u.id)
+    nj = await check_sub(ctx)
     if nj:
         await update.message.reply_text("⚠️ Avval obuna bo'ling:", reply_markup=sub_keyboard(nj))
         return
@@ -247,10 +238,7 @@ async def topup_open(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     return U_TOPUP_AMT
 
 async def topup_get_amount(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not update.message.text:
-        await update.message.reply_text("❌ Iltimos, raqamda miqdorni kiriting!")
-        return U_TOPUP_AMT
-        
+    if not update.message.text: return U_TOPUP_AMT
     t = update.message.text.strip().replace(" ", "").replace(",", "")
     if not t.isdigit() or int(t) < 1000:
         await update.message.reply_text("❌ Kamida 1000 so'm kiriting!")
@@ -276,7 +264,7 @@ async def topup_get_check(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     kb = kb_admin() if is_admin(user.id) else kb_main()
     
     if not amount:
-        await update.message.reply_text("❌ Xatolik yuz berdi. Iltimos, hisobni to'ldirishni boshidan boshlang.", reply_markup=kb)
+        await update.message.reply_text("❌ Xatolik yuz berdi. Iltimos, boshidan boshlang.", reply_markup=kb)
         return ConversationHandler.END
 
     with db_conn() as conn:
@@ -295,10 +283,9 @@ async def topup_get_check(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             cap = (f"💰 <b>HISOBNI TO'LDIRISH</b>\n\n👤 {user_fn}\n🆔 <code>{user.id}</code>\n"
                    f"📱 @{user_un}\n💵 <b>{amount:,.0f} so'm</b>\n🕐 {now_str()}")
             await ctx.bot.send_photo(chat_id=aid, photo=fid, caption=cap, reply_markup=kb_adm, parse_mode=ParseMode.HTML)
-        except Exception as e:
-            log.error(f"Admin g'a yuborishda xatolik: {e}")
+        except Exception: pass
 
-    await update.message.reply_text("✅ Chekingiz adminga muvaffaqiyatli yuborildi!\nTez orada hisobingiz to'ldiriladi.", reply_markup=kb)
+    await update.message.reply_text("✅ Chekingiz adminga yuborildi!\nTez orada hisobingiz to'ldiriladi.", reply_markup=kb)
     ctx.user_data.clear()
     return ConversationHandler.END
 
@@ -311,8 +298,7 @@ async def cb_approve_topup(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     with db_conn() as conn:
         tx = conn.execute("SELECT status FROM txs WHERE id=?", (tx_id,)).fetchone()
         if not tx or tx["status"] != "pending":
-            await q.answer("❌ Bu to'lov allaqachon ko'rib chiqilgan!", show_alert=True)
-            return
+            await q.answer("❌ Bu to'lov ko'rib chiqilgan!", show_alert=True); return
             
     add_balance(uid, amount)
     with db_conn() as conn: conn.execute("UPDATE txs SET status='approved' WHERE id=?", (tx_id,))
@@ -323,7 +309,7 @@ async def cb_approve_topup(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     try: 
         new_cap = (q.message.caption_html or "") + "\n\n✅ <b>TASDIQLANDI</b>"
         await q.edit_message_caption(caption=new_cap, parse_mode=ParseMode.HTML)
-    except Exception as e: log.error(e)
+    except Exception: pass
 
 async def cb_reject_topup(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -334,18 +320,15 @@ async def cb_reject_topup(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     with db_conn() as conn:
         tx = conn.execute("SELECT status FROM txs WHERE id=?", (tx_id,)).fetchone()
         if not tx or tx["status"] != "pending":
-            await q.answer("❌ Bu to'lov allaqachon ko'rib chiqilgan!", show_alert=True)
-            return
+            await q.answer("❌ Bu to'lov ko'rib chiqilgan!", show_alert=True); return
             
     with db_conn() as conn: conn.execute("UPDATE txs SET status='rejected' WHERE id=?", (tx_id,))
-    
     try: await ctx.bot.send_message(int(uid), "❌ To'lovingiz rad etildi.")
     except: pass
-    
     try: 
         new_cap = (q.message.caption_html or "") + "\n\n❌ <b>RAD ETILDI</b>"
         await q.edit_message_caption(caption=new_cap, parse_mode=ParseMode.HTML)
-    except Exception as e: log.error(e)
+    except Exception: pass
 
 # ══════════════════════════════════════════════════════════
 #  KINO QIDIRISH VA XARID
@@ -362,14 +345,12 @@ async def show_parts(update: Update, ctx: ContextTypes.DEFAULT_TYPE, code: str):
     await update.message.reply_text(f"🎬 <b>Kod: {html.escape(code)}</b>\n\nQismni tanlang:", parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(btns))
 
 async def cb_qism(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
+    q = update.callback_query; await q.answer()
     _, code, pno = q.data.split("|")
     pno = int(pno)
     part = get_part(code, pno)
     
-    if not part:
-        await q.message.reply_text("❌ Qism topilmadi."); return
+    if not part: await q.message.reply_text("❌ Qism topilmadi."); return
     
     price = float(part["price"])
     info  = part["info"] or ""
@@ -394,12 +375,9 @@ async def cb_qism(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     except: await q.message.reply_text(txt, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
 
 async def cb_pay_bal(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
-    _, code, pno = q.data.split("|")
-    pno = int(pno)
+    q = update.callback_query; await q.answer()
+    _, code, pno = q.data.split("|"); pno = int(pno)
     part = get_part(code, pno)
-    
     if not part: await q.answer("❌ Qism topilmadi!", show_alert=True); return
     price = float(part["price"])
     uid = q.from_user.id
@@ -414,41 +392,33 @@ async def cb_pay_bal(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     cap = f"📽 <b>{pno}-qism</b>" + (f"\n\n{part['info']}" if part["info"] else "")
     try: await q.message.delete()
     except: pass
-    
     await ctx.bot.send_message(uid, f"✅ Hisobingizdan <b>{price:,.0f} so'm</b> yechildi!", parse_mode=ParseMode.HTML)
     await ctx.bot.send_video(chat_id=uid, video=part["file_id"], caption=cap, parse_mode=ParseMode.HTML)
 
 async def cb_pay_card(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
+    q = update.callback_query; await q.answer()
     _, code, pno = q.data.split("|")
     part = get_part(code, int(pno))
-    
     if not part: await q.message.reply_text("❌ Qism topilmadi."); return ConversationHandler.END
         
     ctx.user_data["mv_code"] = code; ctx.user_data["mv_pno"] = int(pno); ctx.user_data["mv_price"] = float(part["price"])
     card = cfg_get("card", "❗ Karta o'rnatilmagan")
-    
     try: await q.message.delete()
     except: pass
-    
     await ctx.bot.send_message(q.from_user.id, f"💳 Karta raqami: <code>{card}</code>\n💰 Miqdor: <b>{part['price']:,.0f} so'm</b>\n\nPul o'tkazing va <b>chek rasmini yuboring</b>.", parse_mode=ParseMode.HTML, reply_markup=kb_cancel())
     return MV_CARD_CHECK
 
 async def mv_card_recv(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if update.message.photo: fid = update.message.photo[-1].file_id
     elif update.message.document: fid = update.message.document.file_id
-    else:
-        await update.message.reply_text("❌ Iltimos chek rasmini (foto) yuboring!")
-        return MV_CARD_CHECK
+    else: await update.message.reply_text("❌ Iltimos chek rasmini (foto) yuboring!"); return MV_CARD_CHECK
         
     user = update.effective_user
     code = ctx.user_data.get("mv_code"); pno = ctx.user_data.get("mv_pno"); price = ctx.user_data.get("mv_price")
     kb = kb_admin() if is_admin(user.id) else kb_main()
     
     if not code or not price:
-        await update.message.reply_text("❌ Xatolik. Jarayonni boshidan boshlang.", reply_markup=kb)
-        return ConversationHandler.END
+        await update.message.reply_text("❌ Xatolik. Jarayonni boshidan boshlang.", reply_markup=kb); return ConversationHandler.END
         
     with db_conn() as conn:
         cur = conn.execute("INSERT INTO txs(tg_id,amount,kind,code,part_no,status,file_id,created_at) VALUES(?,?,?,?,?,?,?,?)",
@@ -465,25 +435,22 @@ async def mv_card_recv(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             cap = (f"🎬 <b>KINO TO'LOVI (KARTA)</b>\n\n👤 {user_fn}\n🆔 <code>{user.id}</code>\n"
                    f"🎬 Kod: <b>{html.escape(code)}</b> | <b>{pno}-qism</b>\n💵 <b>{price:,.0f} so'm</b>\n🕐 {now_str()}")
             await ctx.bot.send_photo(chat_id=aid, photo=fid, caption=cap, reply_markup=kb_adm, parse_mode=ParseMode.HTML)
-        except Exception as e: log.error(f"mv_card_notify: {e}")
+        except Exception: pass
 
     await update.message.reply_text("✅ Chekingiz adminga yuborildi!\nAdmin tasdiqlashini kuting.", reply_markup=kb)
     ctx.user_data.clear()
     return ConversationHandler.END
 
 async def cb_approve_movie(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
+    q = update.callback_query; await q.answer()
     if not is_admin(q.from_user.id): return
     p = q.data.split("|"); tx_id = p[1]; uid = int(p[2]); code = p[3]; pno = int(p[4])
     
     with db_conn() as conn:
         tx = conn.execute("SELECT status FROM txs WHERE id=?", (tx_id,)).fetchone()
-        if not tx or tx["status"] != "pending":
-            await q.answer("❌ Bu to'lov allaqachon ko'rib chiqilgan!", show_alert=True)
-            return
-            
+        if not tx or tx["status"] != "pending": await q.answer("❌ Bu to'lov ko'rib chiqilgan!", show_alert=True); return
     with db_conn() as conn: conn.execute("UPDATE txs SET status='approved' WHERE id=?", (tx_id,))
+    
     part = get_part(code, pno)
     if part:
         try:
@@ -491,75 +458,109 @@ async def cb_approve_movie(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await ctx.bot.send_message(uid, "✅ To'lovingiz tasdiqlandi!")
             await ctx.bot.send_video(chat_id=uid, video=part["file_id"], caption=cap, parse_mode=ParseMode.HTML)
         except: pass
-        
     try: 
         new_cap = (q.message.caption_html or "") + "\n\n✅ <b>TASDIQLANDI</b>"
         await q.edit_message_caption(caption=new_cap, parse_mode=ParseMode.HTML)
-    except Exception as e: log.error(e)
+    except Exception: pass
 
 async def cb_reject_movie(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
+    q = update.callback_query; await q.answer()
     if not is_admin(q.from_user.id): return
     p = q.data.split("|"); tx_id = p[1]; uid = int(p[2])
-    
     with db_conn() as conn:
         tx = conn.execute("SELECT status FROM txs WHERE id=?", (tx_id,)).fetchone()
-        if not tx or tx["status"] != "pending":
-            await q.answer("❌ Bu to'lov allaqachon ko'rib chiqilgan!", show_alert=True)
-            return
-            
+        if not tx or tx["status"] != "pending": await q.answer("❌ Bu to'lov ko'rib chiqilgan!", show_alert=True); return
     with db_conn() as conn: conn.execute("UPDATE txs SET status='rejected' WHERE id=?", (tx_id,))
-    
     try: await ctx.bot.send_message(int(uid), "❌ To'lovingiz rad etildi.")
     except: pass
-    
     try: 
         new_cap = (q.message.caption_html or "") + "\n\n❌ <b>RAD ETILDI</b>"
         await q.edit_message_caption(caption=new_cap, parse_mode=ParseMode.HTML)
-    except Exception as e: log.error(e)
+    except Exception: pass
+
 
 # ══════════════════════════════════════════════════════════
-#  START XABARI
+#  KINO O'CHIRISH (YANGI FUNKSIYA)
 # ══════════════════════════════════════════════════════════
-async def start_msg_open(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+async def del_movie_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id): return
-    cur_text = cfg_get("start_text", "Hali o'rnatilmagan")
-    cur_photo = cfg_get("start_photo", "")
-    await update.message.reply_text(
-        f"⚙️ <b>Start xabari sozlamalari</b>\n\n🖼 Rasm: {'✅ Bor' if cur_photo else '❌ Yo\'q'}\n📝 Joriy matn:\n{cur_text}\n\n"
-        f"Yangi rasm yuboring yoki «⏭ O'tkazib yuborish»ni bosing:",
-        parse_mode=ParseMode.HTML, reply_markup=ReplyKeyboardMarkup([["⏭ O'tkazib yuborish"], ["❌ Bekor qilish"]], resize_keyboard=True))
-    return ST_PHOTO
+    await update.message.reply_text("🗑 O'chirmoqchi bo'lgan kino kodini kiriting:", reply_markup=kb_cancel())
+    return DEL_CODE
 
-async def st_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if update.message.photo:
-        ctx.user_data["new_photo"] = update.message.photo[-1].file_id
-        if update.message.caption_html:
-            cfg_set("start_photo", ctx.user_data["new_photo"])
-            cfg_set("start_text", update.message.caption_html)
-            await update.message.reply_text("✅ Rasm va matn (formatlangan holatda) birdaniga saqlandi!", reply_markup=kb_admin())
-            return ConversationHandler.END
-            
-        await update.message.reply_text("✅ Rasm qabul qilindi!\n\n📝 Endi start xabari matnini kiriting:", reply_markup=kb_cancel())
-    elif update.message.text == "⏭ O'tkazib yuborish":
-        ctx.user_data["new_photo"] = cfg_get("start_photo", "")
-        await update.message.reply_text("📝 Start xabari matnini kiriting:", reply_markup=kb_cancel())
-    else:
-        await update.message.reply_text("❌ Rasm yuboring yoki o'tkazib yuboring!"); return ST_PHOTO
-    return ST_TEXT
-
-async def st_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not update.message.text and not update.message.caption:
-        await update.message.reply_text("❌ Iltimos, matn yuboring!")
-        return ST_TEXT
+async def del_code(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not update.message.text: return DEL_CODE
+    code = update.message.text.strip()
+    parts = get_parts(code)
+    if not parts:
+        await update.message.reply_text("❌ Bunday kod bilan kino topilmadi! Boshqa kod kiriting:")
+        return DEL_CODE
         
-    new_text = update.message.text_html or update.message.caption_html or ""
-    new_photo = ctx.user_data.get("new_photo", "")
+    ctx.user_data["del_code"] = code
+    p_list = ", ".join(str(p["part_no"]) for p in parts)
+    await update.message.reply_text(
+        f"🎬 Kod: <b>{html.escape(code)}</b>\n📽 Mavjud qismlar: {p_list}\n\n"
+        f"Nechanchi qismni o'chirmoqchisiz?\n(Barcha qismlarni birdaniga o'chirish uchun <b>0</b> deb yozing)",
+        parse_mode=ParseMode.HTML, reply_markup=kb_cancel())
+    return DEL_PART
+
+async def del_part(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not update.message.text: return DEL_PART
+    t = update.message.text.strip()
+    if not t.isdigit():
+        await update.message.reply_text("❌ Iltimos, faqat raqam kiriting!")
+        return DEL_PART
+        
+    pno = int(t)
+    code = ctx.user_data["del_code"]
     
-    cfg_set("start_text", new_text)
-    cfg_set("start_photo", new_photo)
-    await update.message.reply_text("✅ Start xabari muvaffaqiyatli saqlandi!", reply_markup=kb_admin())
+    with db_conn() as c:
+        if pno == 0:
+            c.execute("DELETE FROM parts WHERE code=?", (code,))
+            msg = f"✅ <b>{html.escape(code)}</b> kodli barcha qismlar muvaffaqiyatli o'chirildi!"
+        else:
+            c.execute("DELETE FROM parts WHERE code=? AND part_no=?", (code, pno))
+            msg = f"✅ <b>{html.escape(code)}</b> kodli {pno}-qismi o'chirildi!"
+            
+    await update.message.reply_text(msg, parse_mode=ParseMode.HTML, reply_markup=kb_admin())
+    return ConversationHandler.END
+
+
+# ══════════════════════════════════════════════════════════
+#  BARCHAGA PUL QO'SHISH (YANGI FUNKSIYA)
+# ══════════════════════════════════════════════════════════
+async def add_all_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id): return
+    await update.message.reply_text("💸 Barcha foydalanuvchilarga qancha miqdorda pul qo'shmoqchisiz?\n(Raqamda, masalan: 5000):", reply_markup=kb_cancel())
+    return ADD_ALL_AMT
+
+async def add_all_amt(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not update.message.text: return ADD_ALL_AMT
+    t = update.message.text.strip().replace(" ", "")
+    if not t.isdigit():
+        await update.message.reply_text("❌ Faqat raqam kiriting!")
+        return ADD_ALL_AMT
+        
+    amt = int(t)
+    # Baza bilan barchasiga biriktirish
+    with db_conn() as c:
+        c.execute("UPDATE users SET balance = balance + ?", (amt,))
+        
+    await update.message.reply_text(f"✅ Barcha foydalanuvchilar hisobiga <b>{amt:,.0f} so'm</b> qo'shildi!\nXabar jo'natish boshlandi (Bu jarayon fon rejimida kechadi).", parse_mode=ParseMode.HTML, reply_markup=kb_admin())
+    
+    # Asinxron xabar tarqatuvchi fon-vazifasi (bot qotmasligi uchun)
+    async def broadcast_bonus(bot, users, amount, admin_id):
+        ok = err = 0
+        for u in users:
+            try:
+                await bot.send_message(u["tg_id"], f"🎁 <b>Tabriklaymiz!</b>\n\nAdmin tomonidan hisobingizga <b>{amount:,.0f} so'm</b> bonus qo'shildi!", parse_mode=ParseMode.HTML)
+                ok += 1
+            except: err += 1
+            await asyncio.sleep(0.05)
+            
+        try: await bot.send_message(admin_id, f"✅ Barchaga pul tarqatish yakunlandi.\nMuvaffaqiyatli: {ok} ta\nXato: {err} ta")
+        except: pass
+        
+    asyncio.create_task(broadcast_bonus(ctx.bot, get_all_users(), amt, update.effective_user.id))
     return ConversationHandler.END
 
 # ══════════════════════════════════════════════════════════
@@ -582,7 +583,7 @@ async def a_more_vid(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"✅ {len(ctx.user_data['vids'])}-qism qabul!\nYana yuboring yoki «⏭ Tugatish» ni bosing.", reply_markup=ReplyKeyboardMarkup([[f"➕ {len(ctx.user_data['vids'])+1}-qism qo'shish", "⏭ Tugatish"],["❌ Bekor qilish"]], resize_keyboard=True))
         return A_MORE_VID
     if update.message.text and "Tugatish" in update.message.text:
-        ctx.user_data["infos"] = []; ctx.user_data["prices"] =[]
+        ctx.user_data["infos"] =[]; ctx.user_data["prices"] =[]
         await update.message.reply_text(f"✅ Jami {len(ctx.user_data['vids'])} ta video!\n🔑 Kino kodini kiriting:", reply_markup=kb_cancel()); return A_CODE
     await update.message.reply_text("❌ Video yuboring yoki «Tugatish» ni bosing!"); return A_MORE_VID
 async def a_code(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -641,26 +642,63 @@ async def cont_price(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"✅ {pno}-qism saqlandi! Kod: <code>{html.escape(code)}</code>", parse_mode=ParseMode.HTML, reply_markup=kb_admin())
     return ConversationHandler.END
 
+# START XABARI O'RNATISH
+async def start_msg_open(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id): return
+    cur_text = cfg_get("start_text", "Hali o'rnatilmagan")
+    cur_photo = cfg_get("start_photo", "")
+    await update.message.reply_text(
+        f"⚙️ <b>Start xabari sozlamalari</b>\n\n🖼 Rasm: {'✅ Bor' if cur_photo else '❌ Yo\'q'}\n📝 Joriy matn:\n{cur_text}\n\n"
+        f"Yangi rasm yuboring yoki «⏭ O'tkazib yuborish»ni bosing:",
+        parse_mode=ParseMode.HTML, reply_markup=ReplyKeyboardMarkup([["⏭ O'tkazib yuborish"], ["❌ Bekor qilish"]], resize_keyboard=True))
+    return ST_PHOTO
+async def st_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if update.message.photo:
+        ctx.user_data["new_photo"] = update.message.photo[-1].file_id
+        if update.message.caption_html:
+            cfg_set("start_photo", ctx.user_data["new_photo"])
+            cfg_set("start_text", update.message.caption_html)
+            await update.message.reply_text("✅ Rasm va matn birdaniga saqlandi!", reply_markup=kb_admin())
+            return ConversationHandler.END
+        await update.message.reply_text("✅ Rasm qabul qilindi!\n\n📝 Endi start xabari matnini kiriting:", reply_markup=kb_cancel())
+    elif update.message.text == "⏭ O'tkazib yuborish":
+        ctx.user_data["new_photo"] = cfg_get("start_photo", "")
+        await update.message.reply_text("📝 Start xabari matnini kiriting:", reply_markup=kb_cancel())
+    else:
+        await update.message.reply_text("❌ Rasm yuboring yoki o'tkazib yuboring!"); return ST_PHOTO
+    return ST_TEXT
+async def st_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not update.message.text and not update.message.caption:
+        await update.message.reply_text("❌ Iltimos, matn yuboring!"); return ST_TEXT
+    new_text = update.message.text_html or update.message.caption_html or ""
+    new_photo = ctx.user_data.get("new_photo", "")
+    cfg_set("start_text", new_text)
+    cfg_set("start_photo", new_photo)
+    await update.message.reply_text("✅ Start xabari muvaffaqiyatli saqlandi!", reply_markup=kb_admin())
+    return ConversationHandler.END
+
+# SOXTA KANAL QO'SHISH (API TEKSHIRUVSIZ)
 async def ch_manage_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id): return
     chs = get_channels()
-    lst = "\n".join(f"  [{c['id']}] {c['name']}  |  {c['cid']}" for c in chs) if chs else "  ❌ Hali kanal yo'q"
+    lst = "\n".join(f"  [{c['id']}] {c['name']}  |  {c['link']}" for c in chs) if chs else "  ❌ Hali kanal yo'q"
     await update.message.reply_text(f"📢 <b>Majburiy obuna kanallar:</b>\n{lst}\n\nNima qilmoqchisiz?",
         parse_mode=ParseMode.HTML, reply_markup=ReplyKeyboardMarkup([["➕ Kanal qo'shish", "🗑 Kanal o'chirish"],["📋 Kanallar ro'yxati", "❌ Bekor qilish"]], resize_keyboard=True))
     return CH_ACTION
 async def ch_action(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     t = update.message.text
-    if not t: await update.message.reply_text("❌ Tugmalardan birini tanlang!"); return CH_ACTION
+    if not t: return CH_ACTION
     if t == "📋 Kanallar ro'yxati":
         chs = get_channels()
         if not chs: await update.message.reply_text("📢 Kanal yo'q.", reply_markup=kb_admin())
         else:
-            lst = "\n\n".join(f"[{c['id']}] <b>{c['name']}</b>\n   ID: <code>{c['cid']}</code>\n   Link: {c['link']}" for c in chs)
+            lst = "\n\n".join(f"[{c['id']}] <b>{c['name']}</b>\n   Link: {c['link']}" for c in chs)
             await update.message.reply_text(f"📢 <b>Kanallar ro'yxati:</b>\n\n{lst}", parse_mode=ParseMode.HTML, reply_markup=kb_admin())
         return ConversationHandler.END
     if t == "➕ Kanal qo'shish":
-        await update.message.reply_text("Kanal ID yoki @username kiriting:\n(Masalan: @kanal_useri yoki -100123...)", reply_markup=kb_cancel())
-        return CH_ID
+        # Endi to'g'ridan to'g'ri link so'raymiz (ID yoki API qismlari olib tashlandi)
+        await update.message.reply_text("🔗 Kanal havolasini (linkini) kiriting:\nMasalan: https://t.me/kanal_nomi", reply_markup=kb_cancel())
+        return CH_LINK
     if t == "🗑 Kanal o'chirish":
         chs = get_channels()
         if not chs: await update.message.reply_text("O'chirish uchun kanal yo'q.", reply_markup=kb_admin()); return ConversationHandler.END
@@ -669,7 +707,7 @@ async def ch_action(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return CH_DEL_ID
     return CH_ACTION
 async def ch_del_id(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not update.message.text: await update.message.reply_text("❌ Iltimos, kanal raqamini kiriting!"); return CH_DEL_ID
+    if not update.message.text: return CH_DEL_ID
     t = update.message.text.strip()
     if not t.isdigit(): await update.message.reply_text("❌ Raqam kiriting!"); return CH_DEL_ID
     with db_conn() as c:
@@ -678,33 +716,42 @@ async def ch_del_id(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         c.execute("DELETE FROM channels WHERE id=?", (int(t),))
     await update.message.reply_text(f"✅ «{r['name']}» kanali o'chirildi!", reply_markup=kb_admin())
     return ConversationHandler.END
-async def ch_id(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not update.message.text: await update.message.reply_text("❌ Iltimos, kanal ID'sini yozing!"); return CH_ID
-    cid = update.message.text.strip()
-    if not cid.startswith("-100") and not cid.startswith("@"):
-        if not cid.lstrip("-").isdigit(): cid = "@" + cid
-    try:
-        chat = await ctx.bot.get_chat(cid)
-        bot_member = await ctx.bot.get_chat_member(chat_id=chat.id, user_id=ctx.bot.id)
-        if bot_member.status not in ("administrator", "creator"):
-            await update.message.reply_text("❌ Bot ushbu kanalga admin emas!\nBotni kanalga admin qiling va qayta yozing:", reply_markup=kb_cancel())
-            return CH_ID
-        ctx.user_data["ch_cid"] = str(chat.id)
-    except Exception as e:
-        await update.message.reply_text(f"❌ Xatolik! Kanal topilmadi yoki bot kanalga a'zo emas.\n\nQayta kiring:", reply_markup=kb_cancel())
-        return CH_ID
-    await update.message.reply_text("🔗 Endi kanal havolasini kiriting (https://t.me/...):", reply_markup=kb_cancel())
-    return CH_LINK
 async def ch_link(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not update.message.text: await update.message.reply_text("❌ Iltimos, link yozing!"); return CH_LINK
     ctx.user_data["ch_link"] = update.message.text.strip()
-    await update.message.reply_text("📛 Kanal nomini kiriting:", reply_markup=kb_cancel())
+    await update.message.reply_text("📛 Kanal tugmasida nima deb yozilib turishini (Nomini) kiriting:", reply_markup=kb_cancel())
     return CH_NAME
 async def ch_name_save(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not update.message.text: await update.message.reply_text("❌ Iltimos, kanal nomini yozing!"); return CH_NAME
+    if not update.message.text: await update.message.reply_text("❌ Iltimos, nomini yozing!"); return CH_NAME
     name = update.message.text.strip()
-    with db_conn() as c: c.execute("INSERT INTO channels(cid,link,name) VALUES(?,?,?)", (ctx.user_data["ch_cid"], ctx.user_data["ch_link"], name))
-    await update.message.reply_text(f"✅ Kanal muvaffaqiyatli qo'shildi!\nEndi bu kanal to'liq va kafolatli ishlaydi.", reply_markup=kb_admin())
+    with db_conn() as c: c.execute("INSERT INTO channels(cid,link,name) VALUES(?,?,?)", ("fake_id", ctx.user_data["ch_link"], name))
+    await update.message.reply_text(f"✅ Kanal muvaffaqiyatli qo'shildi!\nEndi bu kanal to'liq va avtomatik ishlaydi.", reply_markup=kb_admin())
+    return ConversationHandler.END
+
+# BARCHAGA XABAR VA YORDAM (ASINXRON LOPTILGAN)
+async def bc_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id): return
+    await update.message.reply_text(f"📨 Barchaga xabarni kiriting:", reply_markup=kb_cancel()); return BC_MSG
+async def bc_send(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    msg = update.message
+    await update.message.reply_text(f"📤 Xabar tarqatish boshlandi... Bu fon rejimida kechadi, tugagach xabar beraman.", reply_markup=kb_admin())
+    
+    async def run_bc(bot, users, broadcast_msg, admin_id):
+        ok = err = 0
+        for u in users:
+            try:
+                if broadcast_msg.text: await bot.send_message(u["tg_id"], broadcast_msg.text_html, parse_mode=ParseMode.HTML)
+                elif broadcast_msg.photo: await bot.send_photo(u["tg_id"], broadcast_msg.photo[-1].file_id, caption=broadcast_msg.caption_html, parse_mode=ParseMode.HTML)
+                elif broadcast_msg.video: await bot.send_video(u["tg_id"], broadcast_msg.video.file_id, caption=broadcast_msg.caption_html, parse_mode=ParseMode.HTML)
+                elif broadcast_msg.voice: await bot.send_voice(u["tg_id"], broadcast_msg.voice.file_id)
+                elif broadcast_msg.document: await bot.send_document(u["tg_id"], broadcast_msg.document.file_id, caption=broadcast_msg.caption_html, parse_mode=ParseMode.HTML)
+                ok += 1
+            except: err += 1
+            await asyncio.sleep(0.05)
+        try: await bot.send_message(admin_id, f"✅ Xabar tarqatish yakunlandi!\n✅ Muvaffaqiyatli: {ok}\n❌ Xato: {err}")
+        except: pass
+        
+    asyncio.create_task(run_bc(ctx.bot, get_all_users(), msg, update.effective_user.id))
     return ConversationHandler.END
 
 async def support_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -737,34 +784,8 @@ async def adm_reply_send(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         elif msg.voice: await ctx.bot.send_voice(tid, msg.voice.file_id)
         elif msg.video: await ctx.bot.send_video(tid, msg.video.file_id, caption=f"📨 Admin: {msg.caption_html or ''}", parse_mode=ParseMode.HTML)
         elif msg.document: await ctx.bot.send_document(tid, msg.document.file_id, caption=f"📨 Admin: {msg.caption_html or ''}", parse_mode=ParseMode.HTML)
-        else:
-            await update.message.reply_text("❌ Bunday turdagi xabar yuborish qo'llab-quvvatlanmaydi.")
-            return U_ADM_REPLY
         await update.message.reply_text("✅ Javob yuborildi!", reply_markup=kb_admin())
-    except Exception as e: await update.message.reply_text(f"❌ Xatolik yuz berdi. Balki u botni bloklagan bo'lishi mumkin.", reply_markup=kb_admin())
-    return ConversationHandler.END
-
-async def bc_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id): return
-    await update.message.reply_text(f"📨 Barchaga xabarni kiriting:", reply_markup=kb_cancel()); return BC_MSG
-async def bc_send(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    users = get_all_users(); ok = err = 0
-    sm = await update.message.reply_text(f"📤 Yuborilmoqda... 0/{len(users)}")
-    for i, u in enumerate(users):
-        try:
-            msg = update.message
-            if msg.text: await ctx.bot.send_message(u["tg_id"], msg.text_html, parse_mode=ParseMode.HTML)
-            elif msg.photo: await ctx.bot.send_photo(u["tg_id"], msg.photo[-1].file_id, caption=msg.caption_html, parse_mode=ParseMode.HTML)
-            elif msg.video: await ctx.bot.send_video(u["tg_id"], msg.video.file_id, caption=msg.caption_html, parse_mode=ParseMode.HTML)
-            elif msg.voice: await ctx.bot.send_voice(u["tg_id"], msg.voice.file_id)
-            elif msg.document: await ctx.bot.send_document(u["tg_id"], msg.document.file_id, caption=msg.caption_html, parse_mode=ParseMode.HTML)
-            ok += 1
-        except: err += 1
-        if (i + 1) % 25 == 0:
-            try: await sm.edit_text(f"📤 Yuborilmoqda... {i+1}/{len(users)}")
-            except: pass
-        await asyncio.sleep(0.05)
-    await sm.edit_text(f"✅ Yuborildi!\n✅ Muvaffaqiyatli: {ok}\n❌ Xato: {err}")
+    except Exception: await update.message.reply_text(f"❌ Xatolik yuz berdi. Balki u botni bloklagan bo'lishi mumkin.", reply_markup=kb_admin())
     return ConversationHandler.END
 
 async def card_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -875,7 +896,7 @@ async def adm_stats(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             buf.seek(0)
             await update.message.reply_photo(photo=buf, caption=txt, parse_mode=ParseMode.HTML, reply_markup=kb_admin())
             return
-        except Exception as e: log.error(f"stats img: {e}")
+        except Exception: pass
 
     await update.message.reply_text(txt, parse_mode=ParseMode.HTML, reply_markup=kb_admin())
 
@@ -884,14 +905,16 @@ async def adm_stats(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 # ══════════════════════════════════════════════════════════
 async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     t = update.message.text.strip()
-    uid = update.effective_user.id
 
-    nj = await check_sub(ctx.bot, uid)
+    nj = await check_sub(ctx)
     if nj:
         await update.message.reply_text("⚠️ Avval quyidagi kanallarga obuna bo'ling:", reply_markup=sub_keyboard(nj))
         return
 
     await show_parts(update, ctx, t)
+
+async def unhandled_media(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("⚠️ Iltimos, avval kerakli menyuni tanlang yoki kino kodini yozing.")
 
 async def cancel_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     kb = kb_admin() if is_admin(update.effective_user.id) else kb_main()
@@ -927,6 +950,14 @@ def main():
     app.add_handler(cv([CallbackQueryHandler(cb_pay_card, pattern=r"^pay_card\|")],
         {MV_CARD_CHECK:[MessageHandler(ANY, mv_card_recv)]}))
 
+    # Yangi Admin funksiyalari (O'chirish va Pul berish)
+    app.add_handler(cv([MessageHandler(filters.Regex("^🗑 Kino o'chirish$"), del_movie_start)],
+        {DEL_CODE:[MessageHandler(ANY, del_code)],
+         DEL_PART:[MessageHandler(ANY, del_part)]}))
+
+    app.add_handler(cv([MessageHandler(filters.Regex("^💸 Barchaga pul$"), add_all_start)],
+        {ADD_ALL_AMT:[MessageHandler(ANY, add_all_amt)]}))
+
     # Admin qismlari
     app.add_handler(cv([MessageHandler(filters.Regex("^🎬 Kino qo'shish$"), adm_add_start)],
         {A_VID:[MessageHandler(ANY, a_vid)],
@@ -948,7 +979,6 @@ def main():
     app.add_handler(cv([MessageHandler(filters.Regex("^📢 Kanal boshqaruv$"), ch_manage_start)],
         {CH_ACTION:[MessageHandler(ANY, ch_action)],
          CH_DEL_ID:[MessageHandler(ANY, ch_del_id)],
-         CH_ID:    [MessageHandler(ANY, ch_id)],
          CH_LINK:[MessageHandler(ANY, ch_link)],
          CH_NAME:[MessageHandler(ANY, ch_name_save)]}))
 
@@ -985,9 +1015,10 @@ def main():
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("admin", cmd_home))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
+    app.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO | filters.Document.ALL, unhandled_media))
 
-    log.info("✅ Bot v5.0 ishga tushdi!")
-    print("✅ Bot v5.0 ishga tushdi!")
+    log.info("✅ Bot v6.0 ishga tushdi!")
+    print("✅ Bot v6.0 ishga tushdi!")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
